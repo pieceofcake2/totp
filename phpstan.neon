@@ -1,0 +1,12 @@
+includes:
+    - vendor/pieceofcake2/phpstan-cakephp2/extension.neon
+
+parameters:
+    level: 5
+    phpVersion: 80000
+    paths:
+        - Controller
+        - Lib
+        - View
+    bootstrapFiles:
+        - tests/bootstrap.php

@@ -1,0 +1,295 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - '1.x'
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+  pull_request:
+    branches:
+      - '**'
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  phpunit:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      id-token: write
+
+    strategy:
+      fail-fast: false
+      matrix:
+        php-version:
+          - '8.0'
+          - '8.1'
+          - '8.2'
+          - '8.3'
+          - '8.4'
+          - '8.5'
+        db-type:
+          - mysql
+
+    env:
+      DB: ${{ matrix.db-type }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Start MySQL 5.6
+        if: matrix.db-type == 'mysql'
+        run: |
+          docker run -d --name mysql56 \
+            -e MYSQL_ROOT_PASSWORD=root \
+            -e MYSQL_DATABASE=cakephp_test \
+            -p 3306:3306 \
+            -v ${{ github.workspace }}/docker/mysql:/docker-entrypoint-initdb.d:ro \
+            --health-cmd="mysqladmin ping" \
+            --health-interval=10s \
+            --health-timeout=5s \
+            --health-retries=3 \
+            mysql:5.6
+
+      - name: Start MySQL 8.0
+        if: matrix.db-type == 'mysql80'
+        run: |
+          docker run -d --name mysql80 \
+            -e MYSQL_ROOT_PASSWORD=root \
+            -e MYSQL_DATABASE=cakephp_test \
+            -p 3307:3306 \
+            -v ${{ github.workspace }}/docker/mysql:/docker-entrypoint-initdb.d:ro \
+            --health-cmd="mysqladmin ping" \
+            --health-interval=10s \
+            --health-timeout=5s \
+            --health-retries=3 \
+            mysql:8.0
+
+      - name: Start PostgreSQL 9.4
+        if: matrix.db-type == 'pgsql'
+        run: |
+          docker run -d --name postgres94 \
+            -e POSTGRES_PASSWORD=postgres \
+            -e POSTGRES_DB=cakephp_test \
+            -p 5432:5432 \
+            -v ${{ github.workspace }}/docker/pgsql:/docker-entrypoint-initdb.d:ro \
+            --health-cmd="pg_isready" \
+            --health-interval=10s \
+            --health-timeout=5s \
+            --health-retries=5 \
+            postgres:9.4
+
+      - name: Install PHP with extensions
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php-version }}
+          extensions: apcu, memcache, memcached, redis, mcrypt, pdo_mysql, pdo_pgsql, pdo_sqlite, pdo_sqlsrv
+          ini-values: |
+            apc.enable_cli=1
+          coverage: xdebug
+
+      - name: locale-gen
+        run: |
+          sudo locale-gen de_DE;
+          sudo locale-gen es_ES;
+
+      - name: Composer get cache directory
+        id: composer-cache
+        run: echo "dir=$(composer config cache-files-dir)" >> $GITHUB_OUTPUT
+
+      - name: Cache Composer
+        uses: actions/cache@v6
+        with:
+          path: ${{ steps.composer-cache.outputs.dir }}
+          key: ${{ runner.os }}-php${{ matrix.php-version }}-composer-${{ hashFiles('**/composer.json') }}
+          restore-keys: |
+            ${{ runner.os }}-php${{ matrix.php-version }}-composer-
+
+      - name: Install Composer Packages
+        run: composer install --prefer-dist --no-interaction --no-progress
+
+      - name: Make temporary directories writable
+        run: |
+          chmod -R 777 ./vendor/pieceofcake2/app/tmp
+          chmod -R 777 ./vendor/pieceofcake2/app/logs
+
+      - name: Copy database.php
+        run: cp ./vendor/pieceofcake2/cakephp/tests/config/database.php ./vendor/pieceofcake2/app/config/
+
+      - name: Setup problem matchers for PHPUnit
+        run: echo "::add-matcher::${{ runner.tool_cache }}/phpunit.json"
+
+      - name: Run Tests
+        run: ./vendor/bin/phpunit --coverage-clover coverage.xml --log-junit junit.xml --colors=always
+
+      - name: Test summary
+        if: ${{ !cancelled() }}
+        uses: pieceofcake2/ci-summary@v1
+        with:
+          type: junit
+          title: Unit tests — PHP ${{ matrix.php-version }} / ${{ matrix.db-type }}
+          file: junit.xml
+          coverage: coverage.xml
+
+      - name: Upload test results to Codecov
+        if: ${{ !cancelled() }}
+        uses: codecov/codecov-action@v7
+        with:
+          report_type: test_results
+          use_oidc: true
+          files: ./junit.xml
+          flags: php${{ matrix.php-version }}-${{ matrix.db-type }}
+          name: PHP ${{ matrix.php-version }} - ${{ matrix.db-type }}
+
+      - name: Upload coverage reports to Codecov
+        uses: codecov/codecov-action@v7
+        with:
+          use_oidc: true
+          flags: php${{ matrix.php-version }}-${{ matrix.db-type }}
+          name: PHP ${{ matrix.php-version }} - ${{ matrix.db-type }}
+
+      - name: Upload coverage reports to Qlty
+        uses: qltysh/qlty-action/coverage@v2
+        with:
+          oidc: true
+          command: publish
+          files: coverage.xml
+          format: clover
+          incomplete: true
+          name: PHP ${{ matrix.php-version }} - ${{ matrix.db-type }}
+
+      - name: Stop MySQL 5.6
+        if: always() && matrix.db-type == 'mysql'
+        run: docker stop mysql56 && docker rm mysql56 || true
+
+      - name: Stop MySQL 8.0
+        if: always() && matrix.db-type == 'mysql80'
+        run: docker stop mysql80 && docker rm mysql80 || true
+
+      - name: Stop PostgreSQL 9.4
+        if: always() && matrix.db-type == 'pgsql'
+        run: docker stop postgres94 && docker rm postgres94 || true
+
+  qlty:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      id-token: write
+
+    needs:
+      - phpunit
+
+    steps:
+      - uses: qltysh/qlty-action/coverage@v2
+        with:
+          oidc: true
+          command: complete
+
+  phpcs:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          coverage: none
+          tools: cs2pr
+
+      - name: Composer get cache directory
+        id: composer-cache
+        run: echo "dir=$(composer config cache-files-dir)" >> $GITHUB_OUTPUT
+
+      - name: Cache Composer
+        uses: actions/cache@v6
+        with:
+          path: ${{ steps.composer-cache.outputs.dir }}
+          key: ${{ runner.os }}-php8.4-composer-${{ hashFiles('**/composer.json') }}
+          restore-keys: |
+            ${{ runner.os }}-php8.4-composer-
+
+      - name: Install dependencies
+        run: composer install --prefer-dist --no-interaction --no-progress
+
+      - name: Check PHP code style
+        id: phpcs
+        run: ./vendor/bin/phpcs --report-full --report-checkstyle=./phpcs-report.xml
+
+      - name: Show PHPCS results in PR
+        if: ${{ always() && steps.phpcs.outcome == 'failure' }}
+        run: cs2pr ./phpcs-report.xml
+
+      - name: PHPCS summary
+        if: ${{ !cancelled() }}
+        uses: pieceofcake2/ci-summary@v1
+        with:
+          type: checkstyle
+          title: PHPCS
+          file: phpcs-report.xml
+
+  phpstan:
+    name: PHPStan
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          coverage: none
+          tools: cs2pr
+
+      - name: Composer get cache directory
+        id: composer-cache
+        run: echo "dir=$(composer config cache-files-dir)" >> $GITHUB_OUTPUT
+
+      - name: Cache Composer
+        uses: actions/cache@v6
+        with:
+          path: ${{ steps.composer-cache.outputs.dir }}
+          key: ${{ runner.os }}-php8.4-composer-${{ hashFiles('**/composer.json') }}
+          restore-keys: |
+            ${{ runner.os }}-php8.4-composer-
+
+      - name: Install dependencies
+        run: composer install --prefer-dist --no-interaction --no-progress
+
+      - name: Run PHPStan
+        id: phpstan
+        run: ./vendor/bin/phpstan analyse --no-progress --error-format=checkstyle > ./phpstan-report.xml
+
+      - name: Show PHPStan results in PR
+        if: ${{ always() && steps.phpstan.outcome == 'failure' }}
+        run: cs2pr ./phpstan-report.xml
+
+      - name: PHPStan summary
+        if: ${{ !cancelled() }}
+        uses: pieceofcake2/ci-summary@v1
+        with:
+          type: phpstan
+          title: PHPStan
+          file: phpstan-report.xml

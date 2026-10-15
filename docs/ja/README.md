@@ -1,7 +1,7 @@
 # Totp プラグインドキュメント
 
 Totp プラグインは、CakePHP 2 アプリケーションのログインに 2 要素認証を追加します。ユーザーは
-ユーザー名とパスワードに加えて、認証アプリに表示される 6 桁のコードを入力します。このコードは
+ユーザー名とパスワードのあとに、認証アプリに表示される 6 桁のコードを入力します。このコードは
 時間ベースのワンタイムパスワード (TOTP、[RFC 6238](https://www.rfc-editor.org/rfc/rfc6238)) です。
 
 コードはどの認証アプリでも使えます。Google Authenticator、Microsoft Authenticator、1Password、
@@ -11,7 +11,8 @@ Bitwarden、Authy、iOS と Android のパスワード管理機能などです�
 - [インストール](#installation)
 - [設定](#configuration)
 - [データベース](#database)
-- [ログイン (TotpAuthenticate)](#login-totpauthenticate)
+- [2 ステップのログイン](#two-step-login)
+- [1 ステップのログイン (TotpAuthenticate)](#one-step-login-totpauthenticate)
 - [2 要素認証の有効化](#setting-up-two-factor-authentication)
 - [リプレイ防止](#replay-protection)
 - [セキュリティ](#security)
@@ -89,9 +90,151 @@ ALTER TABLE users
 シークレットが空 (`NULL` または `''`) のユーザーは、ユーザー名とパスワードだけでログインします。
 シークレットを保存すると、そのユーザーの 2 要素認証が有効になります。
 
-<a id="login-totpauthenticate"></a>
+<a id="two-step-login"></a>
 
-## ログイン (TotpAuthenticate)
+## 2 ステップのログイン
+
+おすすめのログインでは、2 要素認証を有効にしていて、正しいパスワードを入力したユーザーにだけ、
+2 つ目の画面でコードを入力してもらいます。
+
+1. ログイン画面でユーザー名とパスワードを入力します。`TotpComponent::login()` が `AuthComponent` の
+   認証オブジェクト (たとえば `Form`) でこれを確認します。
+2. シークレットのないユーザーはそのままログインします。シークレットのあるユーザーは、ログインを
+   セッションで保留にし (まだログインしていない状態)、コードの入力画面に移ります。
+3. コードの入力画面でコードを入力します。`TotpComponent::verifyLogin()` がコードを確認してログインさせます。
+
+`AuthComponent` の認証オブジェクト (たとえば `Form`) はそのままにして、`TotpComponent` を追加します。
+
+```php
+class AppController extends Controller
+{
+    public $components = [
+        'Flash',
+        'Auth' => [
+            'authenticate' => [
+                'Form' => [
+                    'fields' => ['username' => 'email'],
+                    'passwordHasher' => 'Blowfish',
+                    'scope' => ['User.active' => 1],
+                ],
+            ],
+        ],
+        'Totp.Totp' => [
+            'scope' => ['User.active' => 1],
+        ],
+    ];
+}
+```
+
+```php
+class UsersController extends AppController
+{
+    /**
+     * Before filter.
+     *
+     * @return void
+     */
+    public function beforeFilter()
+    {
+        parent::beforeFilter();
+        $this->Auth->allow('login', 'verify');
+    }
+
+    /**
+     * First step: username and password.
+     *
+     * @return CakeResponse|null
+     */
+    public function login()
+    {
+        if ($this->request->is('post')) {
+            $result = $this->Totp->login();
+            if ($result === TotpComponent::LOGGED_IN) {
+                return $this->redirect($this->Auth->redirectUrl());
+            }
+            if ($result === TotpComponent::CODE_REQUIRED) {
+                return $this->redirect(['action' => 'verify']);
+            }
+            $this->Flash->error(__('Invalid email or password.'));
+        }
+
+        return null;
+    }
+
+    /**
+     * Second step: the code of the authenticator app.
+     *
+     * @return CakeResponse|null
+     */
+    public function verify()
+    {
+        if (!$this->Totp->hasPendingLogin()) {
+            return $this->redirect(['action' => 'login']);
+        }
+        if ($this->request->is('post')) {
+            if ($this->Totp->verifyLogin($this->request->data('User.code'))) {
+                return $this->redirect($this->Auth->redirectUrl());
+            }
+            if (!$this->Totp->hasPendingLogin()) {
+                $this->Flash->error(__('Too many wrong codes. Please log in again.'));
+
+                return $this->redirect(['action' => 'login']);
+            }
+            $this->Flash->error(__('The code is not correct.'));
+        }
+
+        return null;
+    }
+}
+```
+
+```php
+<?php // templates/Users/verify.ctp (legacy layout: app/View/Users/verify.ctp) ?>
+<?= $this->Form->create('User') ?>
+<?= $this->Form->input('code', [
+    'label' => __('Code from the authenticator app'),
+    'autocomplete' => 'one-time-code',
+    'inputmode' => 'numeric',
+    'autofocus' => true,
+]) ?>
+<?= $this->Form->end(__('Verify')) ?>
+```
+
+ログイン画面は通常どおり、ユーザー名とパスワードだけです。
+
+| 設定 | デフォルト | 説明 |
+| --- | --- | --- |
+| `userModel` | `User` | ユーザーモデル。認証オブジェクトと同じモデルを指定します。 |
+| `fields.secret` | `secret` | ユーザーモデルのシークレットのカラム。 |
+| `fields.timeStep` | `totp_time_step` | [リプレイ防止](#replay-protection)に使うカラム。 |
+| `scope` | `[]` | コードを入力した時点でもユーザーが満たしている必要がある条件。通常は認証オブジェクトの `scope` と同じにします。 |
+| `replayProtection` | `false` | 各コードを一度だけ受け付けます。 |
+| `expires` | `300` | 保留中のログインの有効期間 (秒)。 |
+| `maxAttempts` | `5` | パスワードの再入力が必要になるまでに許す、誤ったコードの回数。 |
+| `sessionKey` | `Totp.pending` | 保留中のログインのセッションキー。 |
+| `issuer`、`window`、`secretLength` | `Totp.*` | [設定](#configuration)を参照してください。 |
+
+補足:
+
+- 2 つ目のステップが必要かどうかは、認証オブジェクトのユーザーデータではなく、データベースの
+  シークレットで判断します。そのため `userFields` にシークレットを含める必要はありません。
+  ユーザーデータには主キーが含まれている必要があります。
+- シークレットは、保留中のログインにもログイン後のユーザーデータにも含まれず、セッションには
+  保存されません。ログインするときは `AuthComponent::login()` がセッション ID を新しくします。
+- `getPendingUser()` は保留中のログインのユーザーデータを返します。たとえばコードの入力画面に
+  ユーザー名を表示するのに使えます。`cancelLogin()` は保留中のログインを取り消します
+  (たとえば「戻る」リンク)。
+- 2 つのステップの間にユーザーのシークレットが削除された場合、パスワードは確認済みなので、
+  `verifyLogin()` はコードなしでログインさせます。
+
+<a id="one-step-login-totpauthenticate"></a>
+
+## 1 ステップのログイン (TotpAuthenticate)
+
+`TotpAuthenticate` は、1 つのフォームでまとめて送られたユーザー名、パスワード、コードを確認します。
+`ceeram/google-authenticate` からの移行や、2 つ目の画面を用意できない場合に使います。新しい
+アプリケーションには [2 ステップのログイン](#two-step-login)をおすすめします。1 ステップのフォームは
+すべてのユーザーにコードの入力欄を表示し、パスワードを確認する前にコードを求めることになるためです。
 
 `AuthComponent` の `authenticate` 設定で、`Form` の代わりに `Totp.Totp` を使います。
 `TotpAuthenticate` は `FormAuthenticate` を継承しているので、同じ設定 (`fields`、`userModel`、
@@ -173,7 +316,9 @@ public function login()
 
 ## 2 要素認証の有効化
 
-アプリケーションの画面で、ユーザー自身が 2 要素認証を有効にできるようにします。
+アプリケーションの画面で、ユーザー自身が 2 要素認証を有効にできるようにします。この例では
+`TotpComponent` (上の `AppController` で読み込み済み) と `TotpHelper` を使い、`issuer` は
+[設定](#configuration)の値を使います。
 
 1. シークレットを生成し、確認が済むまでセッションに保存します。
 2. シークレットを QR コードと文字列で表示します。
@@ -183,8 +328,6 @@ public function login()
 ```php
 class UsersController extends AppController
 {
-    public $components = ['Totp.Totp' => ['issuer' => 'My App']];
-
     public $helpers = ['Totp.Totp'];
 
     /**
@@ -256,7 +399,8 @@ class UsersController extends AppController
 
 コードは 30 秒間有効です (`window` が 1 の場合は最大 90 秒)。たとえば後ろからのぞき見てコードと
 パスワードを知った人は、その間に同じコードでログインできてしまいます。`replayProtection` を有効にすると、
-各コードは一度しか受け付けなくなります。
+各コードは一度しか受け付けなくなります。設定は、コンポーネント (2 ステップのログイン) と
+認証オブジェクト (1 ステップのログイン) で共通です。
 
 ```php
 'Totp.Totp' => [
@@ -277,7 +421,9 @@ class UsersController extends AppController
 
 - **ログインの試行回数を制限してください。** コードは 6 桁で、同時に最大 3 つのコードが有効です。
   そのため、パスワードを知っている攻撃者は、何度も試すことでコードを当てられる可能性があります。
-  一定回数失敗したら、アカウントをロックするかログインを遅らせてください (IP アドレスごと、アカウントごと)。
+  2 ステップのログインは `maxAttempts` 回コードを誤ると保留中のログインを取り消しますが、パスワードは
+  もう一度入力できます。一定回数失敗したら、アカウントをロックするかログインを遅らせてください
+  (IP アドレスごと、アカウントごと)。
 - **シークレットを保護してください。** シークレットを持っていれば誰でもコードを生成できます。
   ログに出力しないこと、データベースのバックアップへのアクセスを制限することに加えて、カラムの暗号化
   (たとえばユーザーモデルの `beforeSave()` / `afterFind()` で `Security::encrypt()` を使う) も検討してください。
@@ -309,6 +455,7 @@ class UsersController extends AppController
 | `verifyNewer(?string $secret, string\|int\|null $code, ?int $lastTimeStep): int\|false` | `$lastTimeStep` より新しいコードを確認し、そのタイムステップを返します。 |
 | `otpauthUri(string $secret, string $account, ?string $issuer = null): string` | QR コード用の `otpauth://totp/...` URI。 |
 | `getCurrentCode(string $secret): string` | 現在のコード (テスト用)。 |
+| `saveTimeStep(Model $model, string\|int $id, string $field, int $timeStep): bool` | リプレイ防止のため、受け付けたコードのタイムステップを保存します (条件付きの `UPDATE`)。 |
 | `getSetting(?string $key = null): mixed` | 設定 (またはすべての設定)。 |
 | `getGoogle2FA(): Google2FA` | pragmarx/google2fa のインスタンス。それ以外の設定 (アルゴリズム、桁数) に使います。 |
 
@@ -316,10 +463,16 @@ class UsersController extends AppController
 
 ### TotpComponent
 
-`public $components = ['Totp.Totp' => [/* settings */]];`
+`public $components = ['Totp.Totp' => [/* settings */]];` 設定は [2 ステップのログイン](#two-step-login)を
+参照してください。
 
 | メソッド | 説明 |
 | --- | --- |
+| `login(): string` | 1 つ目のステップ: `AuthComponent::identify()` でユーザー名とパスワードを確認します。`TotpComponent::LOGGED_IN`、`CODE_REQUIRED`、`FAILED` のいずれかを返します。 |
+| `verifyLogin(string\|int\|null $code): bool` | 2 つ目のステップ: コードを確認してログインさせます。 |
+| `hasPendingLogin(): bool` | コードを待っている (期限切れでない) ログインがあるかどうか。 |
+| `getPendingUser(): ?array` | 保留中のログインのユーザーデータ。 |
+| `cancelLogin(): void` | 保留中のログインを取り消します。 |
 | `generateSecret(?int $length = null): string` | `TotpService` を参照してください。 |
 | `verify(?string $secret, string\|int\|null $code): bool` | `TotpService` を参照してください。 |
 | `otpauthUri(string $secret, string $account, ?string $issuer = null): string` | `TotpService` を参照してください。 |
@@ -343,18 +496,21 @@ class UsersController extends AppController
 
 ## テスト
 
-テストでシークレットのあるユーザーをログインさせるには、`TotpService::getCurrentCode()` を使います。
-たとえば `ControllerTestCase` では次のようにします。
+テストでシークレットのあるユーザーの有効なコードを得るには、`TotpService::getCurrentCode()` を使います。
+たとえば 2 ステップのログインを `ControllerTestCase` でテストする場合は次のようにします
+(2 つのリクエストの間、保留中のログインはセッションに保存されています)。
 
 ```php
 App::uses('TotpService', 'Totp.Lib');
 
-$code = (new TotpService())->getCurrentCode('JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP');
 $this->testAction('/users/login', [
     'method' => 'post',
-    'data' => [
-        'User' => ['email' => 'user@example.com', 'password' => 'secret', 'code' => $code],
-    ],
+    'data' => ['User' => ['email' => 'user@example.com', 'password' => 'secret']],
+]);
+$code = (new TotpService())->getCurrentCode('JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP');
+$this->testAction('/users/verify', [
+    'method' => 'post',
+    'data' => ['User' => ['code' => $code]],
 ]);
 ```
 
@@ -380,6 +536,8 @@ $this->testAction('/users/login', [
 
 3. `authenticate` 設定で、`GoogleAuthenticate.Google` の代わりに `Totp.Totp` を使います。
    `fields` (`username`、`password`、`code`、`secret`)、`userModel`、`scope` の設定は同じです。
+   これは 1 ステップのログインのままです。移行後に [2 ステップのログイン](#two-step-login)への
+   切り替えを検討してください。
 4. `GoogleAuthenticator` クラスを置き換えます。
 
    | 以前 | 以後 |

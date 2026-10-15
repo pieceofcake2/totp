@@ -28,6 +28,9 @@ ignores = [
 name = "actionlint"
 
 [[plugin]]
+name = "osv-scanner"
+
+[[plugin]]
 name = "radarlint-php"
 
 [[plugin]]

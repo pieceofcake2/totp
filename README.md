@@ -19,8 +19,8 @@ authenticator app: Google Authenticator, Microsoft Authenticator, 1Password, Bit
 
 ## Documentation
 
-- Website: https://pieceofcake2.github.io/totp/
-- Markdown: [docs/README.md](docs/README.md) (for AI tools and offline reading)
+- Website: https://pieceofcake2.github.io/totp/ (日本語: https://pieceofcake2.github.io/totp/ja/)
+- Markdown: [docs/README.md](docs/README.md) (日本語: [docs/ja/README.md](docs/ja/README.md)) (for AI tools and offline reading)
 
 It covers the configuration, the database columns, the login and setup pages, replay protection,
 security notes, the API reference and the migration from `ceeram/google-authenticate`.

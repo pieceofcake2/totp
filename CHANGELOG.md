@@ -21,3 +21,4 @@ See [Migrating from ceeram/google-authenticate](docs/README.md#migrating-from-ce
 - New `TotpHelper` renders the QR code on the server with bacon/bacon-qr-code (optional); the
   removed `getUrl()` used the discontinued Google Chart API and sent the secret to a third party
 - PHPUnit tests, PHP_CodeSniffer and PHPStan (level 5) in CI
+- Documentation in English and Japanese

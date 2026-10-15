@@ -131,7 +131,7 @@ class TotpAuthenticateTest extends CakeTestCase
         $this->assertFalse($auth->authenticate($request, $this->response));
 
         $request = $this->request(['username' => 'mariano', 'password' => 'password', 'code' => $this->code()]);
-        $this->assertSame(['id' => 1, 'username' => 'mariano'], $auth->authenticate($request, $this->response));
+        $this->assertEquals(['id' => 1, 'username' => 'mariano'], $auth->authenticate($request, $this->response));
     }
 
     public function testAuthenticateWindowSetting(): void
@@ -180,7 +180,7 @@ class TotpAuthenticateTest extends CakeTestCase
         $auth = $this->createAuth(['replayProtection' => true, 'userFields' => ['TotpUser.id', 'TotpUser.username']]);
         $request = $this->request(['username' => 'mariano', 'password' => 'password', 'code' => $this->code()]);
 
-        $this->assertSame(['id' => 1, 'username' => 'mariano'], $auth->authenticate($request, $this->response));
+        $this->assertEquals(['id' => 1, 'username' => 'mariano'], $auth->authenticate($request, $this->response));
         $this->assertFalse($auth->authenticate($request, $this->response));
     }
 

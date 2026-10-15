@@ -145,6 +145,32 @@ class TotpService
     }
 
     /**
+     * Store the time step of an accepted code for replay protection.
+     *
+     * The column is updated only when it is empty or older, so that of two concurrent requests
+     * with the same code only one succeeds.
+     *
+     * @param Model $model The user model.
+     * @param string|int $id The primary key of the user.
+     * @param string $field The column of the time step.
+     * @param int $timeStep The time step returned by `verifyNewer()`.
+     * @return bool False if the same or a newer time step was already stored.
+     */
+    public function saveTimeStep(Model $model, int|string $id, string $field, int $timeStep): bool
+    {
+        $column = $model->alias . '.' . $field;
+        $model->updateAll([$column => $timeStep], [
+            $model->alias . '.' . $model->primaryKey => $id,
+            'OR' => [
+                [$column => null],
+                [$column . ' <' => $timeStep],
+            ],
+        ]);
+
+        return $model->getAffectedRows() > 0;
+    }
+
+    /**
      * The current code for a secret, e.g. for tests.
      *
      * @param string $secret The secret.

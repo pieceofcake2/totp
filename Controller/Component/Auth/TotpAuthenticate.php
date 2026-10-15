@@ -171,23 +171,12 @@ class TotpAuthenticate extends FormAuthenticate
      */
     protected function _saveTimeStep(array $user, int $timeStep): bool
     {
-        $userModel = $this->settings['userModel'];
-        [, $model] = pluginSplit($userModel);
-        $column = $model . '.' . $this->settings['fields']['timeStep'];
-
-        /** @var Model $User */
-        $User = ClassRegistry::init($userModel);
-        if (!isset($user[$User->primaryKey])) {
-            throw new CakeException(sprintf('The user data does not contain the primary key "%s".', $User->primaryKey));
+        /** @var Model $model */
+        $model = ClassRegistry::init($this->settings['userModel']);
+        if (!isset($user[$model->primaryKey])) {
+            throw new CakeException(sprintf('The user data does not contain the primary key "%s".', $model->primaryKey));
         }
-        $User->updateAll([$column => $timeStep], [
-            $model . '.' . $User->primaryKey => $user[$User->primaryKey],
-            'OR' => [
-                [$column => null],
-                [$column . ' <' => $timeStep],
-            ],
-        ]);
 
-        return $User->getAffectedRows() > 0;
+        return $this->getService()->saveTimeStep($model, $user[$model->primaryKey], $this->settings['fields']['timeStep'], $timeStep);
     }
 }

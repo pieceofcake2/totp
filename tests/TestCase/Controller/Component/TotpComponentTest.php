@@ -156,6 +156,19 @@ class TotpComponentTest extends CakeTestCase
         $totp->login();
     }
 
+    public function testUserModelMustBeAModel(): void
+    {
+        ClassRegistry::addObject('NotAModel', new class {
+            public $alias = 'NotAModel';
+        });
+        $totp = $this->createComponent(['userModel' => 'NotAModel']);
+        $this->post(['username' => 'mariano', 'password' => 'password']);
+
+        $this->expectException(CakeException::class);
+        $this->expectExceptionMessage('NotAModel is not a Model.');
+        $totp->login();
+    }
+
     public function testVerifyLogin(): void
     {
         $this->post(['username' => 'mariano', 'password' => 'password']);

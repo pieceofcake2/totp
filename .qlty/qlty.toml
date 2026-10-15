@@ -1,0 +1,21 @@
+# Qlty (code quality analysis and coverage)
+# Reference: https://qlty.sh/d/qlty-toml
+config_version = "0"
+
+# Paths that are not analyzed (dependencies and local files)
+exclude_patterns = [
+    "vendor/**",
+]
+
+test_patterns = [
+    "tests/**",
+]
+
+[[source]]
+name = "default"
+default = true
+
+[coverage]
+ignores = [
+    "tests/**",
+]

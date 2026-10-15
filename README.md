@@ -12,8 +12,9 @@ Two-factor authentication for the login of [pieceofcake2/cakephp](https://github
 applications with time-based one-time passwords (TOTP, RFC 6238). The codes work with any
 authenticator app: Google Authenticator, Microsoft Authenticator, 1Password, Bitwarden and others.
 
-- `TotpAuthenticate` checks the code of the authenticator app after the username and password
-- `TotpComponent` generates secrets and verifies codes when a user sets up two-factor authentication
+- `TotpComponent` provides a two-step login (password, then the code on a second page) and
+  generates secrets and verifies codes when a user sets up two-factor authentication
+- `TotpAuthenticate` checks the username, password and code from one form (one-step login)
 - `TotpHelper` shows the secret as a QR code (generated on the server) and as text
 - Optional replay protection: each code can be used only once
 
@@ -52,20 +53,39 @@ See [Installation](docs/README.md#installation) for the `installer-paths` settin
 
 ```php
 public $components = [
-    'Auth' => [
-        'authenticate' => [
-            'Totp.Totp' => [
-                'fields' => ['username' => 'email', 'code' => 'code', 'secret' => 'secret'],
-                'passwordHasher' => 'Blowfish',
-            ],
-        ],
-    ],
+    'Auth' => ['authenticate' => ['Form' => ['fields' => ['username' => 'email']]]],
+    'Totp.Totp',
 ];
+
+public function login()
+{
+    if ($this->request->is('post')) {
+        $result = $this->Totp->login();
+        if ($result === TotpComponent::LOGGED_IN) {
+            return $this->redirect($this->Auth->redirectUrl());
+        }
+        if ($result === TotpComponent::CODE_REQUIRED) {
+            return $this->redirect(['action' => 'verify']);
+        }
+        $this->Flash->error(__('Invalid email or password.'));
+    }
+}
+
+public function verify()
+{
+    if (!$this->Totp->hasPendingLogin()) {
+        return $this->redirect(['action' => 'login']);
+    }
+    if ($this->request->is('post') && $this->Totp->verifyLogin($this->request->data('User.code'))) {
+        return $this->redirect($this->Auth->redirectUrl());
+    }
+}
 ```
 
-Users with a secret in the `secret` column must enter the current code of their authenticator
-app in the `code` field of the login form. Users without a secret log in with the password only.
-See [Setting Up Two-Factor Authentication](docs/README.md#setting-up-two-factor-authentication).
+Users with a secret in the `secret` column enter the current code of their authenticator app on the
+second page. Users without a secret are logged in after the password. See
+[Two-Step Login](docs/README.md#two-step-login) and
+[Setting Up Two-Factor Authentication](docs/README.md#setting-up-two-factor-authentication).
 
 ## Contributing
 

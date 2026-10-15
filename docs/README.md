@@ -1,8 +1,8 @@
 # Totp Plugin Documentation
 
-The Totp plugin adds two-factor authentication to the login of CakePHP 2 applications. Users enter
-the username, the password and the 6-digit code of their authenticator app: a time-based one-time
-password (TOTP, [RFC 6238](https://www.rfc-editor.org/rfc/rfc6238)).
+The Totp plugin adds two-factor authentication to the login of CakePHP 2 applications. After the
+username and the password, users enter the 6-digit code of their authenticator app: a time-based
+one-time password (TOTP, [RFC 6238](https://www.rfc-editor.org/rfc/rfc6238)).
 
 The codes work with any authenticator app: Google Authenticator, Microsoft Authenticator,
 1Password, Bitwarden, Authy, the password managers of iOS and Android, and others. The codes are
@@ -11,7 +11,8 @@ calculated by [pragmarx/google2fa](https://github.com/antonioribeiro/google2fa).
 - [Installation](#installation)
 - [Configuration](#configuration)
 - [Database](#database)
-- [Login (TotpAuthenticate)](#login-totpauthenticate)
+- [Two-Step Login](#two-step-login)
+- [One-Step Login (TotpAuthenticate)](#one-step-login-totpauthenticate)
 - [Setting Up Two-Factor Authentication](#setting-up-two-factor-authentication)
 - [Replay Protection](#replay-protection)
 - [Security](#security)
@@ -81,7 +82,146 @@ ALTER TABLE users
 A user with an empty secret (`NULL` or `''`) logs in with the username and the password only.
 Two-factor authentication is enabled for a user by storing a secret.
 
-## Login (TotpAuthenticate)
+## Two-Step Login
+
+The recommended login asks for the code on a second page, only for users who have enabled
+two-factor authentication and entered the correct password:
+
+1. The login page asks for the username and the password. `TotpComponent::login()` checks them with
+   the authenticate objects of `AuthComponent` (for example `Form`).
+2. A user without a secret is logged in. For a user with a secret, the login is kept pending in the
+   session (the user is not logged in yet) and the user is sent to the code page.
+3. The code page asks for the code. `TotpComponent::verifyLogin()` checks it and logs the user in.
+
+Keep the authenticate object of `AuthComponent` (for example `Form`), and add `TotpComponent`:
+
+```php
+class AppController extends Controller
+{
+    public $components = [
+        'Flash',
+        'Auth' => [
+            'authenticate' => [
+                'Form' => [
+                    'fields' => ['username' => 'email'],
+                    'passwordHasher' => 'Blowfish',
+                    'scope' => ['User.active' => 1],
+                ],
+            ],
+        ],
+        'Totp.Totp' => [
+            'scope' => ['User.active' => 1],
+        ],
+    ];
+}
+```
+
+```php
+class UsersController extends AppController
+{
+    /**
+     * Before filter.
+     *
+     * @return void
+     */
+    public function beforeFilter()
+    {
+        parent::beforeFilter();
+        $this->Auth->allow('login', 'verify');
+    }
+
+    /**
+     * First step: username and password.
+     *
+     * @return CakeResponse|null
+     */
+    public function login()
+    {
+        if ($this->request->is('post')) {
+            $result = $this->Totp->login();
+            if ($result === TotpComponent::LOGGED_IN) {
+                return $this->redirect($this->Auth->redirectUrl());
+            }
+            if ($result === TotpComponent::CODE_REQUIRED) {
+                return $this->redirect(['action' => 'verify']);
+            }
+            $this->Flash->error(__('Invalid email or password.'));
+        }
+
+        return null;
+    }
+
+    /**
+     * Second step: the code of the authenticator app.
+     *
+     * @return CakeResponse|null
+     */
+    public function verify()
+    {
+        if (!$this->Totp->hasPendingLogin()) {
+            return $this->redirect(['action' => 'login']);
+        }
+        if ($this->request->is('post')) {
+            if ($this->Totp->verifyLogin($this->request->data('User.code'))) {
+                return $this->redirect($this->Auth->redirectUrl());
+            }
+            if (!$this->Totp->hasPendingLogin()) {
+                $this->Flash->error(__('Too many wrong codes. Please log in again.'));
+
+                return $this->redirect(['action' => 'login']);
+            }
+            $this->Flash->error(__('The code is not correct.'));
+        }
+
+        return null;
+    }
+}
+```
+
+```php
+<?php // templates/Users/verify.ctp (legacy layout: app/View/Users/verify.ctp) ?>
+<?= $this->Form->create('User') ?>
+<?= $this->Form->input('code', [
+    'label' => __('Code from the authenticator app'),
+    'autocomplete' => 'one-time-code',
+    'inputmode' => 'numeric',
+    'autofocus' => true,
+]) ?>
+<?= $this->Form->end(__('Verify')) ?>
+```
+
+The login page is the usual one, with the username and the password only.
+
+| Setting | Default | Description |
+| --- | --- | --- |
+| `userModel` | `User` | The user model. Use the same model as the authenticate object. |
+| `fields.secret` | `secret` | Column of the user model with the secret. |
+| `fields.timeStep` | `totp_time_step` | Column for [replay protection](#replay-protection). |
+| `scope` | `[]` | Conditions the user must still match when the code is entered, usually the `scope` of the authenticate object. |
+| `replayProtection` | `false` | Accept each code only once. |
+| `expires` | `300` | Seconds the pending login is valid. |
+| `maxAttempts` | `5` | Wrong codes allowed before the user must enter the password again. |
+| `sessionKey` | `Totp.pending` | Session key of the pending login. |
+| `issuer`, `window`, `secretLength` | `Totp.*` | See [Configuration](#configuration). |
+
+Notes:
+
+- Whether the second step is needed is decided by the secret in the database, not by the user data
+  of the authenticate object, so `userFields` does not need to include the secret. The user data
+  must include the primary key.
+- The secret is not stored in the session, neither in the pending login nor in the logged-in user
+  data. `AuthComponent::login()` renews the session ID when the user is logged in.
+- `getPendingUser()` returns the user data of the pending login, for example to show the username
+  on the code page. `cancelLogin()` cancels it (for example on a "Back" link).
+- If the user's secret is removed between the two steps, `verifyLogin()` logs the user in without a
+  code, because the password has already been checked.
+
+## One-Step Login (TotpAuthenticate)
+
+`TotpAuthenticate` checks the username, the password and the code sent together from one form. Use
+it to migrate from `ceeram/google-authenticate`, or when a second page is not possible. The
+[two-step login](#two-step-login) is recommended for new applications: the one-step form shows the
+code field to all users, and asks for the code before the password has been checked.
 
 Use `Totp.Totp` instead of `Form` in the `authenticate` setting of `AuthComponent`.
 `TotpAuthenticate` extends `FormAuthenticate`, so it supports the same settings (`fields`,
@@ -161,7 +301,9 @@ removed from the user data, so it is not stored in the session.
 
 ## Setting Up Two-Factor Authentication
 
-Let the user enable two-factor authentication on a page of the application:
+Let the user enable two-factor authentication on a page of the application. The example uses
+`TotpComponent` (loaded in `AppController` above) and `TotpHelper`, and the `issuer` from
+[Configuration](#configuration):
 
 1. Generate a secret and keep it in the session until it is confirmed.
 2. Show the secret as a QR code and as text.
@@ -171,8 +313,6 @@ Let the user enable two-factor authentication on a page of the application:
 ```php
 class UsersController extends AppController
 {
-    public $components = ['Totp.Totp' => ['issuer' => 'My App']];
-
     public $helpers = ['Totp.Totp'];
 
     /**
@@ -242,7 +382,8 @@ two-factor authentication, as for other security settings.
 
 A code is valid for 30 seconds (up to 90 seconds with `window` 1). Someone who sees the code and
 the password, for example over the user's shoulder, could log in with the same code during this
-time. Enable `replayProtection` to accept each code only once:
+time. Enable `replayProtection` to accept each code only once. The setting is the same for the
+component (two-step login) and the authenticate object (one-step login):
 
 ```php
 'Totp.Totp' => [
@@ -260,8 +401,10 @@ data must contain the primary key.
 ## Security
 
 - **Limit the login attempts.** A code has 6 digits and up to 3 codes are valid at a time, so
-  an attacker who knows the password could guess a code by trying many times. Lock the account
-  or slow down the logins after some failed attempts (by IP address and by account).
+  an attacker who knows the password could guess a code by trying many times. The two-step login
+  cancels the pending login after `maxAttempts` wrong codes, but the password can be entered
+  again, so also lock the account or slow down the logins after some failed attempts (by IP
+  address and by account).
 - **Protect the secrets.** Anyone with the secret can generate the codes. Do not log them,
   restrict access to the database backups, and consider encrypting the column (for example with
   `Security::encrypt()` in `beforeSave()` / `afterFind()` of the user model).
@@ -288,15 +431,22 @@ anywhere else, for example in a model or a shell.
 | `verifyNewer(?string $secret, string\|int\|null $code, ?int $lastTimeStep): int\|false` | Check a code that is newer than `$lastTimeStep` and return its time step. |
 | `otpauthUri(string $secret, string $account, ?string $issuer = null): string` | The `otpauth://totp/...` URI for the QR code. |
 | `getCurrentCode(string $secret): string` | The current code, for tests. |
+| `saveTimeStep(Model $model, string\|int $id, string $field, int $timeStep): bool` | Store the time step of an accepted code for replay protection (conditional `UPDATE`). |
 | `getSetting(?string $key = null): mixed` | A setting, or all of them. |
 | `getGoogle2FA(): Google2FA` | The pragmarx/google2fa instance, for other settings (algorithm, digits). |
 
 ### TotpComponent
 
-`public $components = ['Totp.Totp' => [/* settings */]];`
+`public $components = ['Totp.Totp' => [/* settings */]];` See [Two-Step Login](#two-step-login) for
+the settings.
 
 | Method | Description |
 | --- | --- |
+| `login(): string` | First step: check the username and password with `AuthComponent::identify()`. Returns `TotpComponent::LOGGED_IN`, `CODE_REQUIRED` or `FAILED`. |
+| `verifyLogin(string\|int\|null $code): bool` | Second step: check the code and log the user in. |
+| `hasPendingLogin(): bool` | Whether a login is waiting for the code (and has not expired). |
+| `getPendingUser(): ?array` | The user data of the pending login. |
+| `cancelLogin(): void` | Cancel the pending login. |
 | `generateSecret(?int $length = null): string` | See `TotpService`. |
 | `verify(?string $secret, string\|int\|null $code): bool` | See `TotpService`. |
 | `otpauthUri(string $secret, string $account, ?string $issuer = null): string` | See `TotpService`. |
@@ -316,18 +466,21 @@ anywhere else, for example in a model or a shell.
 
 ## Testing
 
-Use `TotpService::getCurrentCode()` to log in a user with a secret in your tests, for example
-in a `ControllerTestCase`:
+Use `TotpService::getCurrentCode()` to get a valid code for a user with a secret in your tests,
+for example in a `ControllerTestCase` with the two-step login (the session keeps the pending login
+between the two requests):
 
 ```php
 App::uses('TotpService', 'Totp.Lib');
 
-$code = (new TotpService())->getCurrentCode('JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP');
 $this->testAction('/users/login', [
     'method' => 'post',
-    'data' => [
-        'User' => ['email' => 'user@example.com', 'password' => 'secret', 'code' => $code],
-    ],
+    'data' => ['User' => ['email' => 'user@example.com', 'password' => 'secret']],
+]);
+$code = (new TotpService())->getCurrentCode('JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP');
+$this->testAction('/users/verify', [
+    'method' => 'post',
+    'data' => ['User' => ['code' => $code]],
 ]);
 ```
 
@@ -351,7 +504,8 @@ secrets of your users stay valid.
 
 3. Use `Totp.Totp` instead of `GoogleAuthenticate.Google` in the `authenticate` setting. The
    `fields` (`username`, `password`, `code`, `secret`), `userModel` and `scope` settings are the
-   same.
+   same. This keeps the one-step login; consider moving to the
+   [two-step login](#two-step-login) afterwards.
 4. Replace the `GoogleAuthenticator` class:
 
    | Before | After |

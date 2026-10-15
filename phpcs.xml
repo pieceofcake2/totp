@@ -1,0 +1,16 @@
+<?xml version="1.0"?>
+<ruleset xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="vendor/squizlabs/php_codesniffer/phpcs.xsd">
+    <config name="php_version" value="80000"/>
+
+    <arg value="ps"/>
+    <arg name="colors"/>
+    <arg name="parallel" value="16"/>
+
+    <file>Controller</file>
+    <file>Lib</file>
+    <file>tests</file>
+    <file>View</file>
+
+    <rule ref="CakePHP2"/>
+</ruleset>

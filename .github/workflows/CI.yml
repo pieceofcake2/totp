@@ -16,7 +16,6 @@ on:
 
 permissions:
   contents: read
-  id-token: write
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -25,6 +24,10 @@ concurrency:
 jobs:
   phpunit:
     runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      id-token: write
 
     strategy:
       fail-fast: false
@@ -45,6 +48,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Start MySQL 5.6
         if: matrix.db-type == 'mysql'
@@ -182,6 +187,10 @@ jobs:
   qlty:
     runs-on: ubuntu-latest
 
+    permissions:
+      contents: read
+      id-token: write
+
     needs:
       - phpunit
 
@@ -196,6 +205,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
@@ -242,6 +253,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Setup PHP
         uses: shivammathur/setup-php@v2

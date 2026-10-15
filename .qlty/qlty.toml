@@ -5,6 +5,7 @@ config_version = "0"
 # Paths that are not analyzed (dependencies and local files)
 exclude_patterns = [
     "vendor/**",
+    "node_modules/**",
 ]
 
 test_patterns = [
@@ -20,6 +21,27 @@ ignores = [
     "tests/**",
 ]
 
+# Plugins. PHP_CodeSniffer and PHPStan run in the CI workflow with the CakePHP 2 standard and
+# extension, which Qlty cannot load. editorconfig-checker is not used: PHP_CodeSniffer checks the
+# PHP files, and the checker applies the PHP indentation to Markdown and XML.
+[[plugin]]
+name = "actionlint"
+
+[[plugin]]
+name = "radarlint-php"
+
+[[plugin]]
+name = "ripgrep"
+
+[[plugin]]
+name = "trufflehog"
+
+[[plugin]]
+name = "zizmor"
+
+[smells.return_statements]
+enabled = false
+
 # CakePHP 2 conventions: models, components and helpers are properties and variables with an
 # uppercase first letter ($this->User, $User, $this->Totp)
 [[triage]]
@@ -32,9 +54,6 @@ set.ignored = true
 match.plugins = ["radarlint-php"]
 match.rules = ["radarlint-php:php:S1142"]
 set.ignored = true
-
-[smells.return_statements]
-enabled = false
 
 # Test classes may have many test methods
 [[triage]]
@@ -49,9 +68,3 @@ match.plugins = ["radarlint-php"]
 match.rules = ["radarlint-php:php:S4833"]
 match.file_patterns = ["tests/bootstrap.php", "config/**"]
 set.ignored = true
-
-# Indentation is checked by PHP_CodeSniffer and .editorconfig; the checker also applies the
-# PHP indentation to Markdown and XML
-[[plugin]]
-name = "editorconfig-checker"
-mode = "disabled"

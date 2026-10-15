@@ -324,11 +324,14 @@ class TotpComponent extends Component
      * The user model.
      *
      * @return Model
+     * @throws CakeException When the user model is not a Model.
      */
     protected function _model(): Model
     {
-        /** @var Model $model */
         $model = ClassRegistry::init($this->settings['userModel']);
+        if (!$model instanceof Model) {
+            throw new CakeException(sprintf('%s is not a Model.', $this->settings['userModel']));
+        }
 
         return $model;
     }

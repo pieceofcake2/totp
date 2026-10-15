@@ -16,6 +16,8 @@ class TotpComponentTest extends CakeTestCase
 {
     protected const SECRET = 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP';
 
+    protected const WRONG_CODE = '000000';
+
     public $fixtures = ['plugin.totp.totp_user'];
 
     protected TotpComponentTestController $Controller;
@@ -192,10 +194,10 @@ class TotpComponentTest extends CakeTestCase
         $this->post(['username' => 'mariano', 'password' => 'password']);
         $totp->login();
 
-        $this->assertFalse($totp->verifyLogin('000000'));
-        $this->assertFalse($totp->verifyLogin('000000'));
+        $this->assertFalse($totp->verifyLogin(self::WRONG_CODE));
+        $this->assertFalse($totp->verifyLogin(self::WRONG_CODE));
         $this->assertTrue($totp->hasPendingLogin());
-        $this->assertFalse($totp->verifyLogin('000000'));
+        $this->assertFalse($totp->verifyLogin(self::WRONG_CODE));
         $this->assertFalse($totp->hasPendingLogin(), 'The password must be entered again.');
         $this->assertFalse($totp->verifyLogin($this->code()));
         $this->assertNull($this->loggedInUser());

@@ -16,7 +16,7 @@
         "phpunit/phpunit": "^9.6",
         "pieceofcake2/app": "^2.2",
         "pieceofcake2/phpcs-cakephp2": "^1.1",
-        "pieceofcake2/phpstan-cakephp2": "^0.2.3"
+        "pieceofcake2/phpstan-cakephp2": "^1.0"
     },
     "suggest": {
         "bacon/bacon-qr-code": "Required by TotpHelper::qrCode() to render the QR code (^2.0 || ^3.0)"

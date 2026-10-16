@@ -1,6 +1,6 @@
 # CHANGELOG
 
-## Unreleased
+## 1.0.0 - 2026-10-16
 
 First release of `pieceofcake2/totp`, a maintained fork of
 [ceeram/GoogleAuthenticate](https://github.com/ceeram/GoogleAuthenticate) (`ceeram/google-authenticate`).

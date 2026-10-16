@@ -44,6 +44,8 @@ jobs:
 
     env:
       DB: ${{ matrix.db-type }}
+      # The test database. A real environment variable wins over config/.env.test.
+      DATABASE_URL: ${{ matrix.db-type == 'pgsql' && 'postgres://postgres:postgres@127.0.0.1:5432/cakephp_test' || 'mysql://root:root@127.0.0.1:3306/cakephp_test?encoding=utf8' }}
 
     steps:
       - name: Checkout
@@ -128,7 +130,7 @@ jobs:
           chmod -R 777 ./vendor/pieceofcake2/app/logs
 
       - name: Copy database.php
-        run: cp ./vendor/pieceofcake2/cakephp/tests/config/database.php ./vendor/pieceofcake2/app/config/
+        run: cp ./vendor/pieceofcake2/app/config/database.php.default ./vendor/pieceofcake2/app/config/database.php
 
       - name: Setup problem matchers for PHPUnit
         run: echo "::add-matcher::${{ runner.tool_cache }}/phpunit.json"

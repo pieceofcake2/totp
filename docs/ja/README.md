@@ -103,6 +103,8 @@ ALTER TABLE users
    セッションで保留にし (まだログインしていない状態)、コードの入力画面に移ります。
 3. コードの入力画面でコードを入力します。`TotpComponent::verifyLogin()` がコードを確認してログインさせます。
 
+![ログインの 2 つ目のステップ: 認証アプリのコードの入力](../img/verify.png)
+
 `AuthComponent` の認証オブジェクト (たとえば `Form`) はそのままにして、`TotpComponent` を追加します。
 
 ```php
@@ -324,6 +326,8 @@ public function login()
 2. シークレットを QR コードと文字列で表示します。
 3. ユーザーが認証アプリで QR コードを読み取り、最初のコードを入力します。
 4. コードが正しい場合だけシークレットを保存します。入力を間違えてもログインできなくなることはありません。
+
+![2 要素認証の有効化: 認証アプリ用の QR コードとキー](../img/setup.png)
 
 ```php
 class UsersController extends AppController

@@ -18,6 +18,8 @@ authenticator app: Google Authenticator, Microsoft Authenticator, 1Password, Bit
 - `TotpHelper` shows the secret as a QR code (generated on the server) and as text
 - Optional replay protection: each code can be used only once
 
+![Setting up two-factor authentication: QR code and key for the authenticator app](docs/img/setup.png)
+
 ## Documentation
 
 - Website: https://pieceofcake2.github.io/totp/ (日本語: https://pieceofcake2.github.io/totp/ja/)

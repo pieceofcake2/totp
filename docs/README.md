@@ -93,6 +93,8 @@ two-factor authentication and entered the correct password:
    session (the user is not logged in yet) and the user is sent to the code page.
 3. The code page asks for the code. `TotpComponent::verifyLogin()` checks it and logs the user in.
 
+![The second step of the login: the code of the authenticator app](img/verify.png)
+
 Keep the authenticate object of `AuthComponent` (for example `Form`), and add `TotpComponent`:
 
 ```php
@@ -309,6 +311,8 @@ Let the user enable two-factor authentication on a page of the application. The 
 2. Show the secret as a QR code and as text.
 3. The user scans the QR code with the authenticator app and enters the first code.
 4. Store the secret only if the code is correct, so that a mistake does not lock the user out.
+
+![Setting up two-factor authentication: QR code and key for the authenticator app](img/setup.png)
 
 ```php
 class UsersController extends AppController
